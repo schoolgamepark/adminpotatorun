@@ -61,7 +61,6 @@
             animation: blink 0.3s infinite alternate;
         }
 
-        /* 플레이어 정보 표시 (좌측 상단) */
         #player-info {
             position: absolute;
             top: 20px;
@@ -204,11 +203,9 @@
 const ADMIN_PASSWORD = "0000";
 const CREATOR_PANEL_CODE = "1018"; 
 
-// [업데이트] 접속 시 IP 연동을 완전히 빼고, 즉시 랜덤 감자 이름 부여
 let myUsername = "감자_" + Math.floor(1000 + Math.random() * 9000);
 let isFriendCreator = false;
 
-// 내 닉네임을 수동으로 바꾸고 싶다면 바꿀 수 있도록 유연하게 창을 띄워줄 수도 있습니다.
 let customName = prompt(`당신의 닉네임을 설정하세요 (기본값: ${myUsername})`);
 if(customName && customName.trim() !== "") {
     myUsername = customName.trim();
@@ -216,11 +213,11 @@ if(customName && customName.trim() !== "") {
 
 document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
 
-// --- [Firebase 실시간 서버 연동] ---
+// --- [Firebase 실시간 서버 설정 동기화] ---
 const firebaseConfig = {
     apiKey: "AIzaSyBhovWexS2BwgQBr93isLEa_oZEJBgV0U0",
     authDomain: "potato-974df.firebaseapp.com",
-    databaseURL: "https://potato-974df-default-rtdb.firebaseio.com",
+    databaseURL: "https://potato-974df-default-rtdb.firebaseio.com", // [복구 완료] 데이터 송수신을 위한 코어 엔드포인트 경로 주입
     projectId: "potato-974df",
     storageBucket: "potato-974df.firebasestorage.app",
     messagingSenderId: "398332527462",
@@ -233,7 +230,7 @@ try {
     firebase.initializeApp(firebaseConfig);
     database = firebase.database();
     
-    // [업데이트] 내 닉네임이 서버 실시간 '제작자 친구 닉네임 목록'에 있는지 체크
+    // 내 닉네임 상태 체크
     database.ref('creator_friends_names').child(myUsername).once('value', (snapshot) => {
         if(snapshot.exists() && snapshot.val() === true) {
             isFriendCreator = true;
@@ -247,12 +244,16 @@ try {
 
 function initFirebaseListeners() {
     if(!database) return;
+
+    // 다른 기기 화면에 연동하기 위한 메시지 리스너 개방
     database.ref('global_messages').on('child_added', (snapshot) => {
         const data = snapshot.val();
-        addMessageToBoard(data.type, data.sender, data.text);
+        if(data) {
+            addMessageToBoard(data.type, data.sender, data.text);
+        }
     });
 
-    // 만약 실시간으로 누군가 나를 추가해줬을 때 즉시 반영되도록 감시
+    // 실시간 제작자 등급 추가 동기화
     database.ref('creator_friends_names').child(myUsername).on('value', (snapshot) => {
         if(snapshot.exists() && snapshot.val() === true) {
             isFriendCreator = true;
@@ -287,7 +288,6 @@ function addMessageToBoard(type, sender, text) {
 function sendPush(type, sender, text) {
     if(!text || text.trim() === "") return;
     
-    // 메시지 보낼 때 내가 제작자 친구라면 타입을 'friend'로 강제 치환
     if(type === 'user' && isFriendCreator) {
         type = 'friend';
     }
@@ -297,7 +297,7 @@ function sendPush(type, sender, text) {
             type: type,
             sender: sender,
             text: text,
-            timestamp: Date.now()
+            timestamp: firebase.database.ServerValue.TIMESTAMP
         });
     } else {
         addMessageToBoard(type, sender, text + " (서버 미연동)");
@@ -441,14 +441,12 @@ function onKeyDown(e) {
         return;
     }
 
-    // [업데이트] 닉네임 기반으로 제작자 친구를 등록하도록 수정
     if (e.key === '3') {
         let code = prompt("제작자 패널 보안 코드를 입력하세요:");
         if(code === CREATOR_PANEL_CODE) {
-            let targetName = prompt("추가할 제작자 친구의 '닉네임'을 정확하게 입력하세요:\n(예: 감자_1234 또는 설정한 커스텀 닉네임)");
+            let targetName = prompt("추가할 제작자 친구의 '닉네임'을 정확하게 입력하세요:\n(예: 감자_1234)");
             if(targetName && targetName.trim() !== "" && database) {
                 let cleanName = targetName.trim();
-                // 닉네임 그대로 데이터베이스 노드에 true로 설정
                 database.ref('creator_friends_names').child(cleanName).set(true);
                 alert(`✨ [${cleanName}] 닉네임이 제작자 친구 목록에 실시간 등록되었습니다!`);
             } else if (!database) {
