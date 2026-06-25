@@ -76,7 +76,7 @@
             z-index: 10;
         }
 
-        /* --- [업데이트] 우측 전광판 2단 분리 레이아웃 --- */
+        /* 우측 전광판 2단 분리 레이아웃 */
         .board-container {
             position: absolute;
             top: 20px;
@@ -115,7 +115,7 @@
         }
         .msg-admin { color: #ff3333; font-weight: bold; }
         .msg-server { color: #33ff33; font-weight: bold; }
-        .msg-friend { color: #cc66ff; font-weight: bold; } /* 제작자 친구 보라색 호칭 */
+        .msg-friend { color: #cc66ff; font-weight: bold; } 
         .msg-user { color: #00ffff; }
 
         /* 일반 채팅 입력 모달 */
@@ -202,10 +202,19 @@
 <script>
 // --- [관리자 및 유저 닉네임 시스템] ---
 const ADMIN_PASSWORD = "0000";
-const CREATOR_PANEL_CODE = "1018"; // 제작자 친구 추가 패널 코드
+const CREATOR_PANEL_CODE = "1018"; 
+
+// [업데이트] 접속 시 IP 연동을 완전히 빼고, 즉시 랜덤 감자 이름 부여
 let myUsername = "감자_" + Math.floor(1000 + Math.random() * 9000);
-let currentMyIP = "";
 let isFriendCreator = false;
+
+// 내 닉네임을 수동으로 바꾸고 싶다면 바꿀 수 있도록 유연하게 창을 띄워줄 수도 있습니다.
+let customName = prompt(`당신의 닉네임을 설정하세요 (기본값: ${myUsername})`);
+if(customName && customName.trim() !== "") {
+    myUsername = customName.trim();
+}
+
+document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
 
 // --- [Firebase 실시간 서버 연동] ---
 const firebaseConfig = {
@@ -216,48 +225,25 @@ const firebaseConfig = {
     storageBucket: "potato-974df.firebasestorage.app",
     messagingSenderId: "398332527462",
     appId: "1:398332527462:web:966327f8a76198062b3ea7",
-    measurementId: "G-HKWLH5FH0"
+    measurementId: "G-HKWLH5FHQ0"
 };
 
 let database = null;
 try {
     firebase.initializeApp(firebaseConfig);
     database = firebase.database();
+    
+    // [업데이트] 내 닉네임이 서버 실시간 '제작자 친구 닉네임 목록'에 있는지 체크
+    database.ref('creator_friends_names').child(myUsername).once('value', (snapshot) => {
+        if(snapshot.exists() && snapshot.val() === true) {
+            isFriendCreator = true;
+        }
+    });
+
+    initFirebaseListeners();
 } catch(e) {
     console.error("Firebase 연결 실패:", e);
 }
-
-// IP 연동 및 유저 권한 확인
-fetch('https://api.ipify.org?format=json')
-    .then(response => response.json())
-    .then(data => {
-        currentMyIP = data.ip;
-        
-        if (currentMyIP === "210.107.55.92") {
-            myUsername = "서버 제작자";
-            document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
-            initFirebaseListeners();
-        } else {
-            // [업데이트] 서버에 등록된 '제작자 친구' IP 목록 조회 검증
-            if(database) {
-                database.ref('creator_friends').once('value', (snapshot) => {
-                    if(snapshot.hasChild(currentMyIP.replace(/\./g, '-'))) {
-                        isFriendCreator = true;
-                        myUsername = "제작자 친구";
-                    }
-                    document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
-                    initFirebaseListeners();
-                });
-            } else {
-                document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
-                initFirebaseListeners();
-            }
-        }
-    })
-    .catch(() => {
-        document.getElementById('player-info').innerText = `접속 중: [${myUsername}]`;
-        initFirebaseListeners();
-    });
 
 function initFirebaseListeners() {
     if(!database) return;
@@ -265,9 +251,15 @@ function initFirebaseListeners() {
         const data = snapshot.val();
         addMessageToBoard(data.type, data.sender, data.text);
     });
+
+    // 만약 실시간으로 누군가 나를 추가해줬을 때 즉시 반영되도록 감시
+    database.ref('creator_friends_names').child(myUsername).on('value', (snapshot) => {
+        if(snapshot.exists() && snapshot.val() === true) {
+            isFriendCreator = true;
+        }
+    });
 }
 
-// [업데이트] 분리형 메시지 출력 보드 시스템
 function addMessageToBoard(type, sender, text) {
     const serverContent = document.getElementById('server-chat-content');
     const userContent = document.getElementById('user-chat-content');
@@ -282,7 +274,6 @@ function addMessageToBoard(type, sender, text) {
         serverContent.innerHTML += `<div class="msg-item">${prefix}: ${text}</div>`;
         document.getElementById('server-board').scrollTop = document.getElementById('server-board').scrollHeight;
     } else if (type === 'friend') {
-        // 제작자 친구 전용 보라색 호칭 
         prefix = `<span class="msg-friend">[제작자 친구]</span>`;
         userContent.innerHTML += `<div class="msg-item">${prefix}: ${text}</div>`;
         document.getElementById('user-board').scrollTop = document.getElementById('user-board').scrollHeight;
@@ -295,10 +286,12 @@ function addMessageToBoard(type, sender, text) {
 
 function sendPush(type, sender, text) {
     if(!text || text.trim() === "") return;
-    // 내가 제작자 친구라면 강제로 타입을 friend로 변형 송출
+    
+    // 메시지 보낼 때 내가 제작자 친구라면 타입을 'friend'로 강제 치환
     if(type === 'user' && isFriendCreator) {
         type = 'friend';
     }
+    
     if(database) {
         database.ref('global_messages').push({
             type: type,
@@ -448,16 +441,16 @@ function onKeyDown(e) {
         return;
     }
 
-    // [업데이트] 3번 키 : 제작자 친구 IP 기반 추가 패널 오픈
+    // [업데이트] 닉네임 기반으로 제작자 친구를 등록하도록 수정
     if (e.key === '3') {
         let code = prompt("제작자 패널 보안 코드를 입력하세요:");
         if(code === CREATOR_PANEL_CODE) {
-            let targetIP = prompt("추가할 제작자 친구의 IP 주소를 정확히 입력하세요:\n(예: 123.456.78.9)");
-            if(targetIP && targetIP.trim() !== "" && database) {
-                // Firebase 노드 키값에는 점(.)을 쓸 수 없으므로 대시(-)로 치환하여 저장
-                let safetyKey = targetIP.trim().replace(/\./g, '-');
-                database.ref('creator_friends').child(safetyKey).set(true);
-                alert(`✨ [${targetIP}] 해당 IP가 제작자 친구 목록에 실시간 서버 등록되었습니다!`);
+            let targetName = prompt("추가할 제작자 친구의 '닉네임'을 정확하게 입력하세요:\n(예: 감자_1234 또는 설정한 커스텀 닉네임)");
+            if(targetName && targetName.trim() !== "" && database) {
+                let cleanName = targetName.trim();
+                // 닉네임 그대로 데이터베이스 노드에 true로 설정
+                database.ref('creator_friends_names').child(cleanName).set(true);
+                alert(`✨ [${cleanName}] 닉네임이 제작자 친구 목록에 실시간 등록되었습니다!`);
             } else if (!database) {
                 alert("❌ 실시간 서버와 연동되지 않은 상태입니다.");
             }
